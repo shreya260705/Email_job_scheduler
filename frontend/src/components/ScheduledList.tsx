@@ -87,7 +87,9 @@ export const ScheduledList: React.FC<ScheduledListProps> = ({
                   job.subject?.toLowerCase().includes('project') ||
                   job.body?.toLowerCase().includes('attach') ||
                   job.body?.toLowerCase().includes('enclosed')) && (
-                  <Paperclip className="h-3.5 w-3.5 text-[#00A854] shrink-0" title="Has attachment" />
+                  <span title="Has attachment" className="inline-flex items-center">
+                    <Paperclip className="h-3.5 w-3.5 text-[#00A854] shrink-0" />
+                  </span>
                 )}
                 <span className="font-semibold text-gray-900 truncate">{job.subject}</span>
                 <span className="text-gray-400 font-normal truncate">
