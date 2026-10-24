@@ -65,18 +65,20 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
   // Guaranteed attachment rendering: ALWAYS provide an interactive attachment card for outreach emails
   if (parsedAttachments.length === 0) {
     const ext = email.subject?.toLowerCase().includes('.csv') ? 'csv' : 'pdf';
+    const realUploadedName = localStorage.getItem('last_uploaded_name');
     const cleanSubject = email.subject
       ? email.subject.trim().replace(/[^a-zA-Z0-9_\-\s]/g, '').replace(/\s+/g, '_')
       : 'Attached_Outreach_Document';
-    const safeFileName = cleanSubject.toLowerCase().endsWith(`.${ext}`)
-      ? cleanSubject
-      : `${cleanSubject}.${ext}`;
+    const safeFileName = realUploadedName || (
+      cleanSubject.toLowerCase().endsWith(`.${ext}`) ? cleanSubject : `${cleanSubject}.${ext}`
+    );
 
     parsedAttachments = [
       {
         name: safeFileName,
         size: 28672,
         type: ext,
+        dataUrl: localStorage.getItem('last_uploaded_file') || undefined,
       },
     ];
   }
@@ -118,10 +120,18 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
   };
 
   const getAttachmentBlob = (att: { name: string; size: number; type: string; dataUrl?: string }): { blob: Blob; url: string } => {
-    if (att.dataUrl && att.dataUrl.startsWith('data:')) {
+    // 1. Check dataUrl directly on attachment
+    // 2. Check localStorage for file by name
+    // 3. Check localStorage for most recently uploaded real file by user
+    const effectiveDataUrl =
+      att.dataUrl ||
+      localStorage.getItem('file_data_' + att.name) ||
+      localStorage.getItem('last_uploaded_file');
+
+    if (effectiveDataUrl && effectiveDataUrl.startsWith('data:')) {
       try {
-        const parts = att.dataUrl.split(';base64,');
-        const contentType = parts[0].split(':')[1] || 'application/octet-stream';
+        const parts = effectiveDataUrl.split(';base64,');
+        const contentType = parts[0].split(':')[1] || 'application/pdf';
         const raw = window.atob(parts[1]);
         const rawLength = raw.length;
         const uInt8Array = new Uint8Array(rawLength);
@@ -135,46 +145,13 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
 
     const ext = att.name.split('.').pop()?.toLowerCase() || att.type.toLowerCase();
 
-    if (ext === 'pdf') {
-      const safeTitle = (email.subject || 'Project Status Update').replace(/[()]/g, '');
-      const safeRecipient = (email.recipientEmail || '').replace(/[()]/g, '');
-      const content = `BT /F1 18 Tf 50 720 Td (${safeTitle}) Tj ET ` +
-                      `BT /F1 12 Tf 50 680 Td (Recipient: ${safeRecipient}) Tj ET ` +
-                      `BT /F1 12 Tf 50 650 Td (Status: Verified Outreach Document) Tj ET ` +
-                      `BT /F1 10 Tf 50 610 Td (Attachment: ${att.name}) Tj ET ` +
-                      `BT /F1 10 Tf 50 580 Td (ReachInbox Lead Automation Engine) Tj ET`;
-      const streamLength = content.length;
-      const pdfString = `%PDF-1.4
-1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
-3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
-4 0 obj << /Length ${streamLength} >> stream
-${content}
-endstream endobj
-5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
-xref
-0 6
-0000000000 65535 f 
-0000000010 00000 n 
-0000000060 00000 n 
-0000000117 00000 n 
-0000000244 00000 n 
-0000000350 00000 n 
-trailer << /Size 6 /Root 1 0 R >>
-startxref
-442
-%%EOF`;
-      const blob = new Blob([pdfString], { type: 'application/pdf' });
-      return { blob, url: URL.createObjectURL(blob) };
-    }
-
     if (ext === 'csv') {
       const csvString = `Email,Name,Status,Company,Notes\n${email.recipientEmail || 'lead@domain.com'},Lead Contact,Verified,ReachInbox,Scheduled outreach lead\n`;
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
       return { blob, url: URL.createObjectURL(blob) };
     }
 
-    const defaultContent = `Attachment: ${att.name}\nSize: ${att.size} bytes\nSubject: ${email.subject}\nRecipient: ${email.recipientEmail}\n`;
+    const defaultContent = `File: ${att.name}\nSubject: ${email.subject}\nRecipient: ${email.recipientEmail}\n\n${cleanBody.replace(/<[^>]*>/g, ' ')}\n`;
     const blob = new Blob([defaultContent], { type: 'text/plain;charset=utf-8;' });
     return { blob, url: URL.createObjectURL(blob) };
   };

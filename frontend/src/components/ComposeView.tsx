@@ -143,25 +143,23 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
         textReader.readAsText(file);
       }
 
-      if (file.size < 2.5 * 1024 * 1024) {
-        const dataReader = new FileReader();
-        dataReader.onload = (ev) => {
-          const dataUrl = ev.target?.result as string;
-          (file as any).dataUrl = dataUrl;
-          setAttachedFiles((prev) => {
-            const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
-            if (existingKeys.has(`${file.name}_${file.size}`)) return prev;
-            return [...prev, file];
-          });
-        };
-        dataReader.readAsDataURL(file);
-      } else {
+      const dataReader = new FileReader();
+      dataReader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        (file as any).dataUrl = dataUrl;
+        try {
+          localStorage.setItem('file_data_' + file.name, dataUrl);
+          localStorage.setItem('last_uploaded_file', dataUrl);
+          localStorage.setItem('last_uploaded_name', file.name);
+        } catch (e) {}
+
         setAttachedFiles((prev) => {
           const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
           if (existingKeys.has(`${file.name}_${file.size}`)) return prev;
           return [...prev, file];
         });
-      }
+      };
+      dataReader.readAsDataURL(file);
     });
   };
 
@@ -368,7 +366,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
           name: file.name,
           size: file.size,
           type: file.name.split('.').pop()?.toLowerCase() || 'file',
-          dataUrl: file.dataUrl && file.dataUrl.length < 2 * 1024 * 1024 ? file.dataUrl : undefined,
+          dataUrl: file.dataUrl || localStorage.getItem('file_data_' + file.name) || undefined,
         }));
         finalBody += `\n<!--ATTACHMENTS:${JSON.stringify(attMeta)}-->`;
       }

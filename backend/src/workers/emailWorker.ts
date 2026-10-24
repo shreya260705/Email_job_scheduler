@@ -166,16 +166,40 @@ export async function executeEmailDelivery(emailJobId: string): Promise<boolean>
     const senderRawName = senderEmail.split('@')[0].replace(/[._-]/g, ' ');
     const senderDisplayName = senderRawName.charAt(0).toUpperCase() + senderRawName.slice(1);
 
-    const cleanHtml = body.replace(/<!--ATTACHMENTS:(.*?)-->/g, '');
+    const cleanHtml = body.replace(/(?:<!--|&lt;!--)\s*ATTACHMENTS:[\s\S]*?(?:-->|--&gt;)/gi, '');
     const cleanText = cleanHtml.replace(/<[^>]*>/g, ' ');
 
-    const info = await transporter.sendMail({
+    const mailOptions: any = {
       from: `"${senderDisplayName}" <${senderEmail}>`,
       to: recipientEmail,
       subject,
       text: cleanText,
       html: cleanHtml.includes('<') ? cleanHtml : cleanHtml.replace(/\n/g, '<br/>'),
-    });
+    };
+
+    // Attach real files into Ethereal SMTP delivery
+    const attachmentMatch = body.match(/(?:<!--|&lt;!--)\s*ATTACHMENTS:([\s\S]*?)(?:-->|--&gt;)/i);
+    if (attachmentMatch && attachmentMatch[1]) {
+      try {
+        const attMeta = JSON.parse(attachmentMatch[1].trim());
+        if (Array.isArray(attMeta) && attMeta.length > 0) {
+          mailOptions.attachments = attMeta.map((att: any) => {
+            if (att.dataUrl && att.dataUrl.includes(';base64,')) {
+              return {
+                filename: att.name,
+                content: Buffer.from(att.dataUrl.split(';base64,')[1], 'base64'),
+              };
+            }
+            return {
+              filename: att.name,
+              content: `Attachment file: ${att.name}`,
+            };
+          });
+        }
+      } catch (e) {}
+    }
+
+    const info = await transporter.sendMail(mailOptions);
 
     const previewUrl = getEtherealPreviewUrl(info) || null;
     console.log(`[Worker] Email sent to ${recipientEmail}. Preview: ${previewUrl}`);
