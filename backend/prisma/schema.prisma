@@ -1,0 +1,83 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  RATE_LIMITED
+  CANCELLED
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String
+  avatar           String?
+  googleId         String?           @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  emailJobs        EmailJob[]
+  slackIntegration SlackIntegration?
+
+  @@map("users")
+}
+
+model Sender {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  etherealUser String?
+  etherealPass String?
+  createdAt    DateTime @default(now())
+
+  @@map("senders")
+}
+
+model EmailJob {
+  id                 String      @id @default(cuid())
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderEmail        String
+  recipientEmail     String
+  subject            String
+  body               String      @db.Text
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  status             EmailStatus @default(SCHEDULED)
+  delayBetweenMs     Int         @default(2000)
+  hourlyLimit        Int         @default(50)
+  etherealMessageId  String?
+  etherealPreviewUrl String?
+  failureReason      String?     @db.Text
+  retryCount         Int         @default(0)
+  batchId            String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([userId, status])
+  @@index([senderEmail, scheduledAt])
+  @@map("email_jobs")
+}
+
+model SlackIntegration {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webhookUrl  String   @db.Text
+  channelName String?
+  teamName    String?
+  accessToken String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("slack_integrations")
+}
