@@ -28,10 +28,15 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.startsWith('http://localhost:') ||
+        origin.endsWith('.vercel.app')
+      ) {
         callback(null, true);
       } else {
-        callback(null, true); // Allow during testing
+        callback(null, true); // Allow during deployment testing
       }
     },
     credentials: true,
@@ -75,10 +80,10 @@ async function bootstrap() {
     console.log('[Server] Initializing Elasticsearch client...');
     await initElasticsearch();
 
-    app.listen(port, () => {
+    app.listen(Number(port), '0.0.0.0', () => {
       console.log(`=================================================`);
-      console.log(`🚀 ReachInbox Scheduler API: http://localhost:${port}`);
-      console.log(`📊 Bull-Board Queue Monitor: http://localhost:${port}/admin/queues`);
+      console.log(`🚀 ReachInbox Scheduler API: http://0.0.0.0:${port}`);
+      console.log(`📊 Bull-Board Queue Monitor: http://0.0.0.0:${port}/admin/queues`);
       console.log(`=================================================`);
     });
   } catch (err: any) {

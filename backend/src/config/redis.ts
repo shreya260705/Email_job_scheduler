@@ -1,13 +1,15 @@
 import Redis, { RedisOptions } from 'ioredis';
 
-const redisUrl = process.env.REDIS_URL;
-const redisHost = process.env.REDIS_HOST || 'localhost';
-const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
-const redisPassword = process.env.REDIS_PASSWORD || undefined;
+const redisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL;
+const redisHost = process.env.REDIS_HOST || process.env.REDISHOST || 'localhost';
+const redisPort = parseInt(process.env.REDIS_PORT || process.env.REDISPORT || '6379', 10);
+const redisPassword = process.env.REDIS_PASSWORD || process.env.REDISPASSWORD || undefined;
+const redisUsername = process.env.REDIS_USER || process.env.REDISUSER || undefined;
 
 let parsedOptions: RedisOptions = {
   host: redisHost,
   port: redisPort,
+  username: redisUsername,
   password: redisPassword,
   maxRetriesPerRequest: null, // Required by BullMQ
   enableReadyCheck: false,
