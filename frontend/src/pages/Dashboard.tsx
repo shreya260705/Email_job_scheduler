@@ -147,7 +147,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     e.stopPropagation();
     try {
       await api.cancelScheduledEmail(id);
-      fetchScheduled(searchQuery);
+      fetchScheduled(searchQuery, true);
+      fetchSent(searchQuery, true);
       fetchMetrics();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to cancel email.');
@@ -177,10 +178,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     );
   });
 
-  const liveScheduledCount = metrics?.stats.scheduled ?? scheduledEmails.length;
-  const liveSentCount = metrics?.stats.sent !== undefined
-    ? Math.max(metrics.stats.sent, sentEmails.length)
-    : sentEmails.length;
+  // The badge counter dynamically reflects the real-time count of emails at this moment without requiring a page reload
+  const liveScheduledCount = searchQuery.trim() ? filteredScheduled.length : scheduledEmails.length;
+  const liveSentCount = searchQuery.trim() ? filteredSent.length : sentEmails.length;
 
   return (
     <div className="flex h-screen bg-white overflow-hidden text-gray-900 font-['Inter',sans-serif]">
@@ -233,12 +233,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             <HeaderSearch
               onSearch={(q) => {
                 setSearchQuery(q);
-                if (activeTab === 'scheduled') fetchScheduled(q);
-                else fetchSent(q);
               }}
               onRefresh={() => {
-                if (activeTab === 'scheduled') fetchScheduled(searchQuery);
-                else fetchSent(searchQuery);
+                fetchScheduled(searchQuery);
+                fetchSent(searchQuery);
                 fetchMetrics();
               }}
               loading={loading}
