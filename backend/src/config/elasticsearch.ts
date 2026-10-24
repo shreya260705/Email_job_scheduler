@@ -2,9 +2,12 @@ import { Client } from '@elastic/elasticsearch';
 
 const esNode = process.env.ELASTICSEARCH_NODE || 'http://localhost:9200';
 
+export let isEsAvailable = false;
+
 export const esClient = new Client({
   node: esNode,
-  // Single node local dev without TLS verification
+  requestTimeout: 2000, // 2s timeout to prevent hanging when cluster is unavailable
+  maxRetries: 0,
   tls: { rejectUnauthorized: false },
 });
 
@@ -14,9 +17,11 @@ export async function initElasticsearch(): Promise<boolean> {
   try {
     const isAlive = await esClient.ping();
     if (!isAlive) {
-      console.warn('[Elasticsearch] Ping failed, search may be running in fallback mode.');
+      isEsAvailable = false;
+      console.warn('[Elasticsearch] Ping failed, search will use instant database fallback.');
       return false;
     }
+    isEsAvailable = true;
 
     const indexExists = await esClient.indices.exists({ index: EMAIL_INDEX });
     if (!indexExists) {
@@ -46,7 +51,8 @@ export async function initElasticsearch(): Promise<boolean> {
     }
     return true;
   } catch (error: any) {
-    console.warn(`[Elasticsearch] Warning: Could not initialize index (${error.message}). DB fallback will be used.`);
+    isEsAvailable = false;
+    console.warn(`[Elasticsearch] Cluster offline (${error.message}). Instant DB search fallback active.`);
     return false;
   }
 }

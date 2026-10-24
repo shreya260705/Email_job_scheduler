@@ -204,15 +204,13 @@ export class EmailController {
           limit: limitNum,
         });
 
-        if (searchResult.items && searchResult.items.length > 0) {
-          return res.json({
-            emails: searchResult.items,
-            total: searchResult.total,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(searchResult.total / limitNum),
-          });
-        }
+        return res.json({
+          emails: searchResult.items,
+          total: searchResult.total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(searchResult.total / limitNum),
+        });
       }
 
       // Canonical database fetch: retrieve all SCHEDULED, RATE_LIMITED, and PROCESSING jobs
@@ -274,21 +272,18 @@ export class EmailController {
         const searchResult = await ElasticsearchService.searchEmails({
           userId,
           query: trimmedQuery,
-          status: status === 'ALL' ? undefined : (status as string),
+          status: status === 'ALL' ? 'SENT' : (status as string),
           page: pageNum,
           limit: limitNum,
         });
 
-        const filteredItems = searchResult.items.filter((item: any) => item.status === 'SENT' || item.status === 'FAILED');
-        if (filteredItems.length > 0) {
-          return res.json({
-            emails: filteredItems,
-            total: filteredItems.length,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(filteredItems.length / limitNum),
-          });
-        }
+        return res.json({
+          emails: searchResult.items,
+          total: searchResult.total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(searchResult.total / limitNum),
+        });
       }
 
       // Canonical database fetch: retrieve all SENT or FAILED jobs

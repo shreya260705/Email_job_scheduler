@@ -74,9 +74,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   useEffect(() => {
     fetchMetrics();
     fetchSlackStatus();
-    fetchScheduled(searchQuery);
-    fetchSent(searchQuery);
-  }, [searchQuery, fetchMetrics, fetchSlackStatus, fetchScheduled, fetchSent]);
+  }, [fetchMetrics, fetchSlackStatus]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      fetchScheduled('', scheduledEmails.length > 0);
+      fetchSent('', sentEmails.length > 0);
+      return;
+    }
+
+    // Debounce server-side search fetch so in-memory filter is instantaneous without UI flash
+    const timer = setTimeout(() => {
+      fetchScheduled(searchQuery, true);
+      fetchSent(searchQuery, true);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchScheduled, fetchSent]);
 
   // Deterministic Wakeup: Auto-refresh only when the next scheduled email's run time arrives
   useEffect(() => {
@@ -139,6 +153,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       alert(err.response?.data?.message || 'Failed to cancel email.');
     }
   };
+
+  // Instant in-memory search filtering across subject, recipient, sender and body
+  const filteredScheduled = scheduledEmails.filter((email) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (email.subject && email.subject.toLowerCase().includes(q)) ||
+      (email.recipientEmail && email.recipientEmail.toLowerCase().includes(q)) ||
+      (email.senderEmail && email.senderEmail.toLowerCase().includes(q)) ||
+      (email.body && email.body.toLowerCase().includes(q))
+    );
+  });
+
+  const filteredSent = sentEmails.filter((email) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (email.subject && email.subject.toLowerCase().includes(q)) ||
+      (email.recipientEmail && email.recipientEmail.toLowerCase().includes(q)) ||
+      (email.senderEmail && email.senderEmail.toLowerCase().includes(q)) ||
+      (email.body && email.body.toLowerCase().includes(q))
+    );
+  });
 
   const liveScheduledCount = metrics?.stats.scheduled ?? scheduledEmails.length;
   const liveSentCount = metrics?.stats.sent !== undefined
@@ -211,14 +248,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             <div className="flex-1 overflow-y-auto">
               {activeTab === 'scheduled' ? (
                 <ScheduledList
-                  emails={scheduledEmails}
+                  emails={filteredScheduled}
                   loading={loading}
                   onSelectEmail={handleSelectEmail}
                   onCancel={handleCancelScheduled}
                 />
               ) : (
                 <SentList
-                  emails={sentEmails}
+                  emails={filteredSent}
                   loading={loading}
                   onSelectEmail={handleSelectEmail}
                 />

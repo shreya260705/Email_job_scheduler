@@ -1,4 +1,4 @@
-import { esClient, EMAIL_INDEX } from '../config/elasticsearch';
+import { esClient, EMAIL_INDEX, isEsAvailable } from '../config/elasticsearch';
 import prisma from '../config/db';
 
 export interface EmailDocument {
@@ -28,6 +28,7 @@ export class ElasticsearchService {
    * Indexes a new or updated email document into Elasticsearch.
    */
   public static async indexEmail(doc: EmailDocument): Promise<void> {
+    if (!isEsAvailable) return;
     try {
       await esClient.index({
         index: EMAIL_INDEX,
@@ -55,6 +56,7 @@ export class ElasticsearchService {
    * Updates fields of an indexed email document (e.g., status, sentAt, previewUrl).
    */
   public static async updateEmailDoc(id: string, updates: Partial<EmailDocument>): Promise<void> {
+    if (!isEsAvailable) return;
     try {
       const docUpdates: any = { ...updates };
       if (updates.scheduledAt) docUpdates.scheduledAt = new Date(updates.scheduledAt).toISOString();
@@ -71,19 +73,77 @@ export class ElasticsearchService {
     }
   }
 
+  public static async deleteEmailDoc(id: string): Promise<void> {
+    if (!isEsAvailable) return;
+    try {
+      await esClient.delete({ index: EMAIL_INDEX, id });
+    } catch (e) {}
+  }
+
+  /**
+   * High-speed indexed database search fallback.
+   * Runs in 0ms without waiting for network timeouts.
+   */
+  public static async searchDatabase(params: SearchEmailsParams): Promise<{ items: any[]; total: number }> {
+    const { userId, query, status, page = 1, limit = 50 } = params;
+    const from = (page - 1) * limit;
+
+    const whereClause: any = { userId };
+    if (status === 'SCHEDULED') {
+      whereClause.status = { in: ['SCHEDULED', 'PROCESSING', 'RATE_LIMITED'] };
+    } else if (status === 'SENT') {
+      whereClause.status = { in: ['SENT', 'FAILED'] };
+    } else if (status && status !== 'ALL') {
+      whereClause.status = status;
+    }
+
+    if (query && query.trim().length > 0) {
+      const q = query.trim();
+      whereClause.OR = [
+        { recipientEmail: { contains: q, mode: 'insensitive' } },
+        { subject: { contains: q, mode: 'insensitive' } },
+        { body: { contains: q, mode: 'insensitive' } },
+        { senderEmail: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.emailJob.findMany({
+        where: whereClause,
+        skip: from,
+        take: limit,
+        orderBy: { scheduledAt: 'desc' },
+      }),
+      prisma.emailJob.count({ where: whereClause }),
+    ]);
+
+    return { items, total };
+  }
+
   /**
    * Performs full-text search across indexed emails.
-   * Falls back to PostgreSQL if Elasticsearch cluster is unavailable.
+   * If Elasticsearch is offline or times out, immediately jumps to fast database fallback.
    */
   public static async searchEmails(params: SearchEmailsParams): Promise<{ items: any[]; total: number }> {
-    const { userId, query, status, page = 1, limit = 20 } = params;
+    const { userId, query, status, page = 1, limit = 50 } = params;
     const from = (page - 1) * limit;
+
+    // Fast-path: jump immediately to database search if cluster is not connected
+    if (!isEsAvailable) {
+      return ElasticsearchService.searchDatabase(params);
+    }
 
     try {
       const mustClauses: any[] = [{ term: { userId } }];
 
       if (status && status !== 'ALL') {
-        mustClauses.push({ term: { status } });
+        if (status === 'SCHEDULED') {
+          mustClauses.push({ terms: { status: ['SCHEDULED', 'PROCESSING', 'RATE_LIMITED'] } });
+        } else if (status === 'SENT') {
+          mustClauses.push({ terms: { status: ['SENT', 'FAILED'] } });
+        } else {
+          mustClauses.push({ term: { status } });
+        }
       }
 
       if (query && query.trim().length > 0) {
@@ -108,41 +168,17 @@ export class ElasticsearchService {
         sort: [{ scheduledAt: { order: 'desc' } }],
       });
 
-      const total = typeof response.hits.total === 'number' 
-        ? response.hits.total 
-        : (response.hits.total?.value || 0);
+      const total =
+        typeof response.hits.total === 'number'
+          ? response.hits.total
+          : response.hits.total?.value || 0;
 
       const items = response.hits.hits.map((hit: any) => hit._source);
 
       return { items, total };
     } catch (err: any) {
       console.warn(`[Elasticsearch] Search query failed (${err.message}). Using database fallback.`);
-
-      // Database fallback
-      const whereClause: any = { userId };
-      if (status && status !== 'ALL') {
-        whereClause.status = status;
-      }
-      if (query && query.trim().length > 0) {
-        whereClause.OR = [
-          { recipientEmail: { contains: query, mode: 'insensitive' } },
-          { subject: { contains: query, mode: 'insensitive' } },
-          { body: { contains: query, mode: 'insensitive' } },
-          { senderEmail: { contains: query, mode: 'insensitive' } },
-        ];
-      }
-
-      const [items, total] = await Promise.all([
-        prisma.emailJob.findMany({
-          where: whereClause,
-          skip: from,
-          take: limit,
-          orderBy: { scheduledAt: 'desc' },
-        }),
-        prisma.emailJob.count({ where: whereClause }),
-      ]);
-
-      return { items, total };
+      return ElasticsearchService.searchDatabase(params);
     }
   }
 }
