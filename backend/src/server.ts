@@ -92,7 +92,15 @@ async function bootstrap() {
   }
 }
 
-// Graceful Shutdown
+// Graceful Shutdown & Process Error Handling
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Process] Uncaught Exception:', error);
+});
+
 process.on('SIGTERM', async () => {
   console.log('[Server] SIGTERM received. Shutting down gracefully...');
   await worker.close();

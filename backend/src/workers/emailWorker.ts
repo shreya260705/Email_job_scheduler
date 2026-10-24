@@ -218,6 +218,10 @@ export function createEmailWorker(): Worker<EmailJobPayload> {
     console.error(`[Worker] Job ${job?.id} failed with error: ${err.message}`);
   });
 
+  worker.on('error', (err) => {
+    console.error('[Worker] BullMQ Worker connection error:', err.message);
+  });
+
   return worker;
 }
 

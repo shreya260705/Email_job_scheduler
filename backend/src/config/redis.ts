@@ -1,8 +1,9 @@
 import Redis, { RedisOptions } from 'ioredis';
 
-const redisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL;
-const redisHost = process.env.REDIS_HOST || process.env.REDISHOST || 'localhost';
-const redisPort = parseInt(process.env.REDIS_PORT || process.env.REDISPORT || '6379', 10);
+const rawRedisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || '';
+const redisUrl = rawRedisUrl.trim().replace(/^['"]|['"]$/g, '');
+const redisHost = (process.env.REDIS_HOST || process.env.REDISHOST || 'localhost').trim();
+const redisPort = parseInt((process.env.REDIS_PORT || process.env.REDISPORT || '6379').trim(), 10);
 const redisPassword = process.env.REDIS_PASSWORD || process.env.REDISPASSWORD || undefined;
 const redisUsername = process.env.REDIS_USER || process.env.REDISUSER || undefined;
 
@@ -23,7 +24,7 @@ if (redisUrl) {
       port: parseInt(u.port || '6379', 10),
       username: u.username ? decodeURIComponent(u.username) : undefined,
       password: u.password ? decodeURIComponent(u.password) : undefined,
-      tls: redisUrl.startsWith('rediss://') ? {} : undefined,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: true } : undefined,
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
     };

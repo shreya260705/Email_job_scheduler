@@ -32,6 +32,10 @@ export const emailQueue = new Queue<EmailJobPayload>(EMAIL_QUEUE_NAME, {
   },
 });
 
+emailQueue.on('error', (err) => {
+  console.error('[Queue] BullMQ Queue connection error:', err.message);
+});
+
 /**
  * Enqueues an individual email job with exact millisecond delay.
  * Idempotency is enforced by using the database record ID as the BullMQ jobId.
