@@ -76,14 +76,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     fetchSlackStatus();
     fetchScheduled(searchQuery);
     fetchSent(searchQuery);
-
-    const interval = setInterval(() => {
-      fetchMetrics();
-      fetchScheduled(searchQuery, true);
-      fetchSent(searchQuery, true);
-    }, 2500);
-
-    return () => clearInterval(interval);
   }, [searchQuery, fetchMetrics, fetchSlackStatus, fetchScheduled, fetchSent]);
 
   const handleTabChange = (tab: 'scheduled' | 'sent') => {
