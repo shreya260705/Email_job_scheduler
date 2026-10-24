@@ -103,10 +103,19 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
         </div>
 
         {/* Email Body Content */}
-        <div className="text-sm text-gray-800 leading-relaxed space-y-4 pt-2">
-          {email.body.split('\n').map((paragraph, idx) => (
-            <p key={idx}>{paragraph}</p>
-          ))}
+        <div className="text-sm text-gray-800 leading-relaxed pt-2">
+          {email.body.includes('<') ? (
+            <div
+              className="rich-editor-content leading-relaxed space-y-2"
+              dangerouslySetInnerHTML={{ __html: email.body }}
+            />
+          ) : (
+            <div className="space-y-4">
+              {email.body.split('\n').map((paragraph, idx) => (
+                <p key={idx}>{paragraph}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

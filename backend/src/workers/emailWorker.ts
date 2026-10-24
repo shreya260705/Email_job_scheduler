@@ -159,8 +159,8 @@ export function createEmailWorker(): Worker<EmailJobPayload> {
           from: `"${senderDisplayName}" <${senderEmail}>`,
           to: recipientEmail,
           subject,
-          text: body,
-          html: body.replace(/\n/g, '<br/>'),
+          text: body.replace(/<[^>]*>/g, ' '),
+          html: body.includes('<') ? body : body.replace(/\n/g, '<br/>'),
         });
 
         const previewUrl = getEtherealPreviewUrl(info) || null;

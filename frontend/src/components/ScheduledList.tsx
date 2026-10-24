@@ -83,7 +83,7 @@ export const ScheduledList: React.FC<ScheduledListProps> = ({
               {/* Subject & Body Snippet */}
               <div className="text-sm truncate">
                 <span className="font-semibold text-gray-900">{job.subject}</span>
-                <span className="text-gray-400 font-normal"> - {job.body.replace(/\n/g, ' ').slice(0, 80)}...</span>
+                <span className="text-gray-400 font-normal"> - {job.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 80)}...</span>
               </div>
             </div>
 

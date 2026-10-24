@@ -188,7 +188,7 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
                 <span>or upload lead list (.csv, .txt):</span>
                 <label className="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition-colors">
                   <Upload className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>{uploadedFile ? uploadedFile.name : 'Choose CSV / TXT'}</span>
+                  <span>Choose CSV / TXT</span>
                   <input
                     type="file"
                     accept=".csv,.txt"
@@ -197,6 +197,33 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
                   />
                 </label>
               </div>
+
+              {uploadedFile && (
+                <div className="flex items-center justify-between p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mt-2">
+                  <div className="flex items-center space-x-2 overflow-hidden">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400">
+                      FILE
+                    </span>
+                    <span className="text-xs font-medium text-gray-200 truncate">
+                      {uploadedFile.name}
+                    </span>
+                    <span className="text-[11px] text-gray-400 shrink-0">
+                      ({(uploadedFile.size / 1024).toFixed(1)} KB)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadedFile(null);
+                      setDetectedEmailCount(0);
+                    }}
+                    className="text-gray-400 hover:text-red-400 p-1 rounded transition-colors shrink-0"
+                    title="Remove attached file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
