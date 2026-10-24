@@ -3,6 +3,21 @@ import { User, EmailJob, SchedulerMetrics, SenderOption } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+/**
+ * Returns the Bull-Board Queue Monitor URL.
+ * In production, it dynamically resolves to the deployed backend's /admin/queues
+ * derived from VITE_API_URL (e.g., https://backend.onrender.com/admin/queues)
+ * or VITE_ADMIN_QUEUES_URL if explicitly configured.
+ */
+export const getAdminQueuesUrl = (): string => {
+  if (import.meta.env.VITE_ADMIN_QUEUES_URL) {
+    return import.meta.env.VITE_ADMIN_QUEUES_URL;
+  }
+  const apiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').trim();
+  const backendBase = apiUrl.replace(/\/api\/?$/, '');
+  return `${backendBase || ''}/admin/queues`;
+};
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
 });

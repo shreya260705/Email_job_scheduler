@@ -1,6 +1,7 @@
 import React from 'react';
 import { User } from '../types';
 import { Mail, Slack, ExternalLink, LogOut, Activity } from 'lucide-react';
+import { getAdminQueuesUrl } from '../services/api';
 
 interface NavbarProps {
   user: User;
@@ -66,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Sent Emails
             </button>
             <a
-              href="http://localhost:5000/admin/queues"
+              href={getAdminQueuesUrl()}
               target="_blank"
               rel="noreferrer"
               className="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all"

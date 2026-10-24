@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { Clock, Send, ChevronDown, LogOut, Slack, Activity, Plus } from 'lucide-react';
+import { getAdminQueuesUrl } from '../services/api';
 
 interface SidebarProps {
   user: User;
@@ -74,7 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>{slackConnected ? 'Slack: Connected' : 'Connect Slack'}</span>
             </button>
             <a
-              href="http://localhost:5000/admin/queues"
+              href={getAdminQueuesUrl()}
               target="_blank"
               rel="noreferrer"
               className="w-full px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
