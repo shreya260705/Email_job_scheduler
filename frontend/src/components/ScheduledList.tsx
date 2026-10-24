@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { EmailJob } from '../types';
-import { Star, Trash2, Clock } from 'lucide-react';
+import { Star, Trash2, Clock, Paperclip } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface ScheduledListProps {
@@ -81,9 +81,21 @@ export const ScheduledList: React.FC<ScheduledListProps> = ({
               </span>
 
               {/* Subject & Body Snippet */}
-              <div className="text-sm truncate">
-                <span className="font-semibold text-gray-900">{job.subject}</span>
-                <span className="text-gray-400 font-normal"> - {job.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 80)}...</span>
+              <div className="text-sm truncate flex items-center space-x-1.5">
+                {job.body.includes('<!--ATTACHMENTS:') && (
+                  <Paperclip className="h-3.5 w-3.5 text-gray-400 shrink-0" title="Has attachment" />
+                )}
+                <span className="font-semibold text-gray-900 truncate">{job.subject}</span>
+                <span className="text-gray-400 font-normal truncate">
+                  {' '}
+                  -{' '}
+                  {job.body
+                    .replace(/<!--ATTACHMENTS:(.*?)-->/g, '')
+                    .replace(/<[^>]*>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .slice(0, 80)}
+                  ...
+                </span>
               </div>
             </div>
 

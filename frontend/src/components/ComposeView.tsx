@@ -342,7 +342,23 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
       const formData = new FormData();
       formData.append('senderEmail', selectedSender);
       formData.append('subject', subject);
-      formData.append('body', htmlBody);
+
+      // Serialize attached files metadata into body comment so it persists across DB & views
+      let allAttached = [...attachedFiles];
+      if (uploadedFile && !allAttached.some((f) => f.name === uploadedFile.name)) {
+        allAttached.push(uploadedFile);
+      }
+      let finalBody = htmlBody;
+      if (allAttached.length > 0) {
+        const attMeta = allAttached.map((file) => ({
+          name: file.name,
+          size: file.size,
+          type: file.name.split('.').pop()?.toLowerCase() || 'file',
+        }));
+        finalBody += `\n<!--ATTACHMENTS:${JSON.stringify(attMeta)}-->`;
+      }
+
+      formData.append('body', finalBody);
       formData.append('delayBetweenSeconds', delayBetweenSeconds.toString());
       formData.append('hourlyLimit', (hourlyLimit || 50).toString());
 

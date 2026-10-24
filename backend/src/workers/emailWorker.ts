@@ -155,12 +155,15 @@ export function createEmailWorker(): Worker<EmailJobPayload> {
         const senderRawName = senderEmail.split('@')[0].replace(/[._-]/g, ' ');
         const senderDisplayName = senderRawName.charAt(0).toUpperCase() + senderRawName.slice(1);
 
+        const cleanHtml = body.replace(/<!--ATTACHMENTS:(.*?)-->/g, '');
+        const cleanText = cleanHtml.replace(/<[^>]*>/g, ' ');
+
         const info = await transporter.sendMail({
           from: `"${senderDisplayName}" <${senderEmail}>`,
           to: recipientEmail,
           subject,
-          text: body.replace(/<[^>]*>/g, ' '),
-          html: body.includes('<') ? body : body.replace(/\n/g, '<br/>'),
+          text: cleanText,
+          html: cleanHtml.includes('<') ? cleanHtml : cleanHtml.replace(/\n/g, '<br/>'),
         });
 
         const previewUrl = getEtherealPreviewUrl(info) || null;

@@ -83,10 +83,20 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
     setLoading(true);
 
     try {
+      let finalBody = body;
+      if (uploadedFile) {
+        const attMeta = [{
+          name: uploadedFile.name,
+          size: uploadedFile.size,
+          type: uploadedFile.name.split('.').pop()?.toLowerCase() || 'file',
+        }];
+        finalBody += `\n<!--ATTACHMENTS:${JSON.stringify(attMeta)}-->`;
+      }
+
       const formData = new FormData();
       formData.append('senderEmail', selectedSender);
       formData.append('subject', subject);
-      formData.append('body', body);
+      formData.append('body', finalBody);
       formData.append('delayBetweenSeconds', delayBetweenSeconds.toString());
       formData.append('hourlyLimit', hourlyLimit.toString());
 
