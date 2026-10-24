@@ -4,6 +4,7 @@ import prisma from '../config/db';
 import { scheduleEmailJob, emailQueue } from '../queues/emailQueue';
 import ElasticsearchService from '../services/elasticsearchService';
 import { extractValidEmails } from '../utils/csvParser';
+import { executeEmailDelivery } from '../workers/emailWorker';
 
 const DEFAULT_SENDERS = [
   { name: 'Growth Team', email: 'outreach@growth.reachinbox.ai' },
@@ -146,11 +147,45 @@ export class EmailController {
   }
 
   /**
+   * Reconciles overdue scheduled jobs where scheduledAt <= now and status === 'SCHEDULED'.
+   * Ensures seamless, guaranteed delivery even if BullMQ worker was restarting or delayed.
+   */
+  public static async reconcileOverdueJobs(userId?: string) {
+    try {
+      const now = new Date();
+      const overdueJobs = await prisma.emailJob.findMany({
+        where: {
+          status: 'SCHEDULED',
+          scheduledAt: { lte: now },
+          ...(userId ? { userId } : {}),
+        },
+        take: 20,
+      });
+
+      if (overdueJobs.length > 0) {
+        console.log(`[Reconciliation] Reconciling ${overdueJobs.length} overdue scheduled jobs...`);
+        for (const job of overdueJobs) {
+          try {
+            await executeEmailDelivery(job.id);
+          } catch (e: any) {
+            console.error(`[Reconciliation] Error delivering ${job.id}:`, e.message);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Reconciliation] Failed checking overdue jobs:', err.message);
+    }
+  }
+
+  /**
    * Retrieves scheduled emails with immediate PostgreSQL retrieval and Elasticsearch search.
    */
   public static async getScheduledEmails(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
+      // Reconcile any overdue jobs so status seamlessly reflects SENT immediately
+      await EmailController.reconcileOverdueJobs(userId);
+
       const { q = '', page = '1', limit = '50' } = req.query;
 
       const pageNum = parseInt(page as string, 10) || 1;
@@ -223,6 +258,9 @@ export class EmailController {
   public static async getSentEmails(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
+      // Reconcile any overdue jobs so newly delivered emails appear in Sent list
+      await EmailController.reconcileOverdueJobs(userId);
+
       const { q = '', status = 'ALL', page = '1', limit = '50' } = req.query;
 
       const pageNum = parseInt(page as string, 10) || 1;
@@ -296,6 +334,7 @@ export class EmailController {
   public static async getMetrics(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
+      await EmailController.reconcileOverdueJobs(userId);
 
       const [totalScheduled, totalSent, totalFailed, totalRateLimited] = await Promise.all([
         prisma.emailJob.count({
@@ -337,7 +376,7 @@ export class EmailController {
   }
 
   /**
-   * Cancels a pending scheduled job from BullMQ and PostgreSQL.
+   * Cancels or deletes an email job from BullMQ and PostgreSQL.
    */
   public static async cancelScheduledEmail(req: AuthRequest, res: Response) {
     try {
@@ -349,28 +388,29 @@ export class EmailController {
       });
 
       if (!jobRecord) {
-        return res.status(404).json({ message: 'Scheduled email not found.' });
+        return res.status(404).json({ message: 'Email not found.' });
       }
 
-      if (jobRecord.status === 'SENT') {
-        return res.status(400).json({ message: 'Cannot cancel an email that has already been sent.' });
+      // If still scheduled, remove from BullMQ
+      if (jobRecord.status === 'SCHEDULED') {
+        try {
+          const bullJob = await emailQueue.getJob(id);
+          if (bullJob) {
+            await bullJob.remove();
+          }
+        } catch (e) {}
       }
 
-      // Remove from BullMQ
-      const bullJob = await emailQueue.getJob(id);
-      if (bullJob) {
-        await bullJob.remove();
-      }
-
-      // Update DB & Elasticsearch
-      await prisma.emailJob.update({
+      // Delete from DB and Elasticsearch
+      await prisma.emailJob.delete({
         where: { id },
-        data: { status: 'CANCELLED' },
       });
 
-      await ElasticsearchService.updateEmailDoc(id, { status: 'CANCELLED' });
+      try {
+        await ElasticsearchService.deleteEmailDoc(id);
+      } catch (e) {}
 
-      return res.json({ message: 'Email job cancelled successfully.' });
+      return res.json({ message: 'Email removed successfully.' });
     } catch (err: any) {
       return res.status(500).json({ message: err.message });
     }

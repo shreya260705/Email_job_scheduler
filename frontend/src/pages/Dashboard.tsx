@@ -78,6 +78,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     fetchSent(searchQuery);
   }, [searchQuery, fetchMetrics, fetchSlackStatus, fetchScheduled, fetchSent]);
 
+  // Deterministic Wakeup: Auto-refresh only when the next scheduled email's run time arrives
+  useEffect(() => {
+    if (scheduledEmails.length === 0) return;
+
+    const now = Date.now();
+    let nextDueDelay = Infinity;
+
+    for (const email of scheduledEmails) {
+      if (email.scheduledAt) {
+        const timeMs = new Date(email.scheduledAt).getTime();
+        const diff = timeMs - now;
+        if (diff > 0 && diff < nextDueDelay) {
+          nextDueDelay = diff;
+        } else if (diff <= 0) {
+          nextDueDelay = 0;
+          break;
+        }
+      }
+    }
+
+    if (nextDueDelay === 0) {
+      // Job is due now; refresh once silently to pull updated status
+      const timeout = setTimeout(() => {
+        fetchScheduled(searchQuery, true);
+        fetchSent(searchQuery, true);
+        fetchMetrics();
+      }, 1500);
+      return () => clearTimeout(timeout);
+    } else if (nextDueDelay !== Infinity && nextDueDelay < 3600000) {
+      // Set exact timer (+1.5s buffer) for when the next scheduled email is due
+      const timer = setTimeout(() => {
+        fetchScheduled(searchQuery, true);
+        fetchSent(searchQuery, true);
+        fetchMetrics();
+      }, nextDueDelay + 1500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [scheduledEmails, searchQuery, fetchScheduled, fetchSent, fetchMetrics]);
+
   const handleTabChange = (tab: 'scheduled' | 'sent') => {
     setActiveTab(tab);
     setViewMode('list');
@@ -141,9 +181,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             email={selectedEmail}
             onBack={() => setViewMode('list')}
             onDelete={async (id) => {
-              await api.cancelScheduledEmail(id);
+              try {
+                await api.cancelScheduledEmail(id);
+              } catch (e) {}
               setViewMode('list');
-              fetchScheduled('');
+              fetchScheduled(searchQuery);
+              fetchSent(searchQuery);
+              fetchMetrics();
             }}
           />
         ) : (

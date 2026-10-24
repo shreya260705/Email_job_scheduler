@@ -77,135 +77,155 @@ async function enforceInterEmailDelay(senderEmail: string, minDelayMs: number) {
   await redisClient.set(lastSendKey, Date.now().toString(), 'EX', 3600);
 }
 
+/**
+ * Core email delivery execution function.
+ * Safe to be invoked by either BullMQ worker or reconciliation sweeper.
+ * Guarantees idempotency via PostgreSQL status checks.
+ */
+export async function executeEmailDelivery(emailJobId: string): Promise<boolean> {
+  console.log(`[Worker] Executing delivery for Job ${emailJobId}`);
+
+  // 1. Check current status in DB (Idempotency and Cancel checks)
+  const emailRecord = await prisma.emailJob.findUnique({
+    where: { id: emailJobId },
+  });
+
+  if (!emailRecord) {
+    console.warn(`[Worker] Record ${emailJobId} not found in DB. Skipping.`);
+    return false;
+  }
+
+  if (emailRecord.status === 'CANCELLED' || emailRecord.status === 'SENT') {
+    console.log(`[Worker] Job ${emailJobId} is already ${emailRecord.status}. Skipping.`);
+    return false;
+  }
+
+  const { senderEmail, recipientEmail, subject, body, hourlyLimit, delayBetweenMs, userId } = emailRecord;
+  const effectiveHourlyLimit = hourlyLimit || defaultHourlyLimit;
+  const effectiveMinDelay = delayBetweenMs || defaultMinDelayMs;
+
+  // 2. Check Hourly Rate Limiter (Atomic Redis Counter)
+  const rateLimitCheck = await checkAndIncrementRateLimit(senderEmail, effectiveHourlyLimit);
+
+  if (!rateLimitCheck.allowed) {
+    console.warn(`[Worker] Rate limit of ${effectiveHourlyLimit}/hr REACHED for sender: ${senderEmail}`);
+
+    await prisma.emailJob.update({
+      where: { id: emailJobId },
+      data: {
+        status: 'RATE_LIMITED',
+        failureReason: `Hourly quota of ${effectiveHourlyLimit} exceeded. Postponed to ${rateLimitCheck.nextHourStart.toISOString()}`,
+      },
+    });
+
+    await ElasticsearchService.updateEmailDoc(emailJobId, {
+      status: 'RATE_LIMITED',
+    });
+
+    await SlackService.notifyRateLimitHit({
+      userId,
+      senderEmail,
+      hourlyLimit: effectiveHourlyLimit,
+      nextAvailableWindow: rateLimitCheck.nextHourStart,
+      recipientEmail,
+      subject,
+    });
+
+    console.log(`[Worker] Rescheduling ${emailJobId} to run in ${Math.round(rateLimitCheck.delayUntilNextHourMs / 1000)}s`);
+    await scheduleEmailJob(
+      {
+        emailJobId,
+        userId,
+        senderEmail,
+        recipientEmail,
+        subject,
+        body,
+        scheduledAt: emailRecord.scheduledAt.toISOString(),
+        delayBetweenMs: effectiveMinDelay,
+        hourlyLimit: effectiveHourlyLimit,
+      },
+      rateLimitCheck.nextHourStart
+    );
+
+    return false;
+  }
+
+  // 3. Throttling: Enforce minimum delay between sends
+  await enforceInterEmailDelay(senderEmail, effectiveMinDelay);
+
+  // 4. Mark status as PROCESSING
+  await prisma.emailJob.update({
+    where: { id: emailJobId },
+    data: { status: 'PROCESSING' },
+  });
+
+  try {
+    // 5. Send Email via SMTP
+    const transporter = await getMailerTransporter();
+
+    const senderRawName = senderEmail.split('@')[0].replace(/[._-]/g, ' ');
+    const senderDisplayName = senderRawName.charAt(0).toUpperCase() + senderRawName.slice(1);
+
+    const cleanHtml = body.replace(/<!--ATTACHMENTS:(.*?)-->/g, '');
+    const cleanText = cleanHtml.replace(/<[^>]*>/g, ' ');
+
+    const info = await transporter.sendMail({
+      from: `"${senderDisplayName}" <${senderEmail}>`,
+      to: recipientEmail,
+      subject,
+      text: cleanText,
+      html: cleanHtml.includes('<') ? cleanHtml : cleanHtml.replace(/\n/g, '<br/>'),
+    });
+
+    const previewUrl = getEtherealPreviewUrl(info) || null;
+    console.log(`[Worker] Email sent to ${recipientEmail}. Preview: ${previewUrl}`);
+
+    // 6. Update Database
+    const updatedRecord = await prisma.emailJob.update({
+      where: { id: emailJobId },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        etherealMessageId: info.messageId,
+        etherealPreviewUrl: previewUrl,
+        failureReason: null,
+      },
+    });
+
+    // 7. Update Elasticsearch index
+    await ElasticsearchService.updateEmailDoc(emailJobId, {
+      status: 'SENT',
+      sentAt: updatedRecord.sentAt,
+      etherealPreviewUrl: previewUrl,
+    });
+
+    return true;
+  } catch (sendError: any) {
+    console.error(`[Worker] Failed sending email ${emailJobId}:`, sendError.message);
+
+    await prisma.emailJob.update({
+      where: { id: emailJobId },
+      data: {
+        status: 'FAILED',
+        failureReason: sendError.message,
+        retryCount: { increment: 1 },
+      },
+    });
+
+    await ElasticsearchService.updateEmailDoc(emailJobId, {
+      status: 'FAILED',
+    });
+
+    throw sendError;
+  }
+}
+
 export function createEmailWorker(): Worker<EmailJobPayload> {
   const worker = new Worker<EmailJobPayload>(
     EMAIL_QUEUE_NAME,
     async (job: Job<EmailJobPayload>) => {
-      const { emailJobId, userId, senderEmail, recipientEmail, subject, body, delayBetweenMs, hourlyLimit } = job.data;
-      const effectiveHourlyLimit = hourlyLimit || defaultHourlyLimit;
-      const effectiveMinDelay = delayBetweenMs || defaultMinDelayMs;
-
-      console.log(`[Worker] Processing Job ${job.id} for ${recipientEmail} from ${senderEmail}`);
-
-      // 1. Check current status in DB (Idempotency and Cancel checks)
-      const emailRecord = await prisma.emailJob.findUnique({
-        where: { id: emailJobId },
-      });
-
-      if (!emailRecord) {
-        console.warn(`[Worker] Record ${emailJobId} not found in DB. Skipping.`);
-        return;
-      }
-
-      if (emailRecord.status === 'CANCELLED' || emailRecord.status === 'SENT') {
-        console.log(`[Worker] Job ${emailJobId} is already ${emailRecord.status}. Skipping.`);
-        return;
-      }
-
-      // 2. Check Hourly Rate Limiter (Atomic Redis Counter)
-      const rateLimitCheck = await checkAndIncrementRateLimit(senderEmail, effectiveHourlyLimit);
-
-      if (!rateLimitCheck.allowed) {
-        console.warn(`[Worker] Rate limit of ${effectiveHourlyLimit}/hr REACHED for sender: ${senderEmail}`);
-
-        // Update DB status to RATE_LIMITED
-        await prisma.emailJob.update({
-          where: { id: emailJobId },
-          data: {
-            status: 'RATE_LIMITED',
-            failureReason: `Hourly quota of ${effectiveHourlyLimit} exceeded. Postponed to ${rateLimitCheck.nextHourStart.toISOString()}`,
-          },
-        });
-
-        // Update Elasticsearch
-        await ElasticsearchService.updateEmailDoc(emailJobId, {
-          status: 'RATE_LIMITED',
-        });
-
-        // 3. Dispatch Live Slack Alert
-        await SlackService.notifyRateLimitHit({
-          userId,
-          senderEmail,
-          hourlyLimit: effectiveHourlyLimit,
-          nextAvailableWindow: rateLimitCheck.nextHourStart,
-          recipientEmail,
-          subject,
-        });
-
-        // 4. Reschedule job into next available hour window without dropping it
-        console.log(`[Worker] Rescheduling ${emailJobId} to run in ${Math.round(rateLimitCheck.delayUntilNextHourMs / 1000)}s`);
-        await scheduleEmailJob(job.data, rateLimitCheck.nextHourStart);
-
-        return;
-      }
-
-      // 3. Throttling: Enforce minimum delay between sends
-      await enforceInterEmailDelay(senderEmail, effectiveMinDelay);
-
-      // 4. Mark status as PROCESSING
-      await prisma.emailJob.update({
-        where: { id: emailJobId },
-        data: { status: 'PROCESSING' },
-      });
-
-      try {
-        // 5. Send Email via SMTP
-        const transporter = await getMailerTransporter();
-
-        const senderRawName = senderEmail.split('@')[0].replace(/[._-]/g, ' ');
-        const senderDisplayName = senderRawName.charAt(0).toUpperCase() + senderRawName.slice(1);
-
-        const cleanHtml = body.replace(/<!--ATTACHMENTS:(.*?)-->/g, '');
-        const cleanText = cleanHtml.replace(/<[^>]*>/g, ' ');
-
-        const info = await transporter.sendMail({
-          from: `"${senderDisplayName}" <${senderEmail}>`,
-          to: recipientEmail,
-          subject,
-          text: cleanText,
-          html: cleanHtml.includes('<') ? cleanHtml : cleanHtml.replace(/\n/g, '<br/>'),
-        });
-
-        const previewUrl = getEtherealPreviewUrl(info) || null;
-        console.log(`[Worker] Email sent to ${recipientEmail}. Preview: ${previewUrl}`);
-
-        // 6. Update Database
-        const updatedRecord = await prisma.emailJob.update({
-          where: { id: emailJobId },
-          data: {
-            status: 'SENT',
-            sentAt: new Date(),
-            etherealMessageId: info.messageId,
-            etherealPreviewUrl: previewUrl,
-            failureReason: null,
-          },
-        });
-
-        // 7. Update Elasticsearch index
-        await ElasticsearchService.updateEmailDoc(emailJobId, {
-          status: 'SENT',
-          sentAt: updatedRecord.sentAt,
-          etherealPreviewUrl: previewUrl,
-        });
-
-      } catch (sendError: any) {
-        console.error(`[Worker] Failed sending email ${emailJobId}:`, sendError.message);
-
-        await prisma.emailJob.update({
-          where: { id: emailJobId },
-          data: {
-            status: 'FAILED',
-            failureReason: sendError.message,
-            retryCount: { increment: 1 },
-          },
-        });
-
-        await ElasticsearchService.updateEmailDoc(emailJobId, {
-          status: 'FAILED',
-        });
-
-        throw sendError; // BullMQ backoff retry
-      }
+      const { emailJobId } = job.data;
+      await executeEmailDelivery(emailJobId);
     },
     {
       connection: redisConnectionOptions,
