@@ -13,14 +13,28 @@ export const SentList: React.FC<SentListProps> = ({
   loading,
   onSelectEmail,
 }) => {
-  const [starredIds, setStarredIds] = useState<Record<string, boolean>>({});
+  const [starredIds, setStarredIds] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    emails.forEach((email) => {
+      if (localStorage.getItem('starred_' + email.id) === 'true') {
+        initial[email.id] = true;
+      }
+    });
+    return initial;
+  });
 
   const toggleStar = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setStarredIds((prev) => ({ ...prev, [id]: !prev[id] }));
+    setStarredIds((prev) => {
+      const next = !prev[id];
+      localStorage.setItem('starred_' + id, next.toString());
+      return { ...prev, [id]: next };
+    });
   };
 
-  if (loading && emails.length === 0) {
+  const visibleEmails = emails.filter((job) => localStorage.getItem('archived_' + job.id) !== 'true');
+
+  if (loading && visibleEmails.length === 0) {
     return (
       <div className="p-8 space-y-4 animate-pulse">
         <div className="h-10 bg-gray-100 rounded-lg" />
@@ -30,7 +44,7 @@ export const SentList: React.FC<SentListProps> = ({
     );
   }
 
-  if (emails.length === 0) {
+  if (visibleEmails.length === 0) {
     return (
       <div className="p-16 text-center text-gray-400 flex flex-col items-center justify-center">
         <div className="h-12 w-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mb-3">
@@ -46,7 +60,7 @@ export const SentList: React.FC<SentListProps> = ({
 
   return (
     <div className="divide-y divide-[#F5F5F5]">
-      {emails.map((job) => {
+      {visibleEmails.map((job) => {
         const recipientLabel = job.recipientEmail.includes('@')
           ? job.recipientEmail.split('@')[0]
           : job.recipientEmail;
@@ -114,10 +128,14 @@ export const SentList: React.FC<SentListProps> = ({
               <button
                 onClick={(e) => toggleStar(job.id, e)}
                 className={`p-1 transition-colors ${
-                  isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-gray-500'
+                  isStarred ? 'text-[#F59E0B]' : 'text-gray-300 hover:text-gray-500'
                 }`}
               >
-                <Star className={`h-4 w-4 ${isStarred ? 'fill-amber-400' : ''}`} />
+                <Star
+                  className="h-4 w-4"
+                  fill={isStarred ? '#F59E0B' : 'none'}
+                  color={isStarred ? '#F59E0B' : 'currentColor'}
+                />
               </button>
             </div>
           </div>
