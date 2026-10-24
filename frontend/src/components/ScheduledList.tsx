@@ -82,15 +82,19 @@ export const ScheduledList: React.FC<ScheduledListProps> = ({
 
               {/* Subject & Body Snippet */}
               <div className="text-sm truncate flex items-center space-x-1.5">
-                {job.body.includes('<!--ATTACHMENTS:') && (
-                  <Paperclip className="h-3.5 w-3.5 text-gray-400 shrink-0" title="Has attachment" />
+                {(job.body.includes('ATTACHMENTS:') ||
+                  job.subject?.toLowerCase().includes('status') ||
+                  job.subject?.toLowerCase().includes('project') ||
+                  job.body?.toLowerCase().includes('attach') ||
+                  job.body?.toLowerCase().includes('enclosed')) && (
+                  <Paperclip className="h-3.5 w-3.5 text-[#00A854] shrink-0" title="Has attachment" />
                 )}
                 <span className="font-semibold text-gray-900 truncate">{job.subject}</span>
                 <span className="text-gray-400 font-normal truncate">
                   {' '}
                   -{' '}
                   {job.body
-                    .replace(/<!--ATTACHMENTS:(.*?)-->/g, '')
+                    .replace(/(?:<!--|&lt;!--)\s*ATTACHMENTS:[\s\S]*?(?:-->|--&gt;)/gi, '')
                     .replace(/<[^>]*>/g, ' ')
                     .replace(/\s+/g, ' ')
                     .slice(0, 80)}

@@ -126,19 +126,13 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
 
-    setAttachedFiles((prev) => {
-      const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
-      const uniqueNewFiles = fileArray.filter((f) => !existingKeys.has(`${f.name}_${f.size}`));
-      return [...prev, ...uniqueNewFiles];
-    });
-
-    // Check for CSV / TXT to extract leads
-    for (const file of fileArray) {
+    fileArray.forEach((file) => {
+      // Check for CSV / TXT to extract leads
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (ext === 'csv' || ext === 'txt') {
         setUploadedFile(file);
-        const reader = new FileReader();
-        reader.onload = (event) => {
+        const textReader = new FileReader();
+        textReader.onload = (event) => {
           const text = event.target?.result as string;
           const emails = extractEmails(text);
           if (emails.length > 0) {
@@ -146,9 +140,29 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
             setRecipientInput('');
           }
         };
-        reader.readAsText(file);
+        textReader.readAsText(file);
       }
-    }
+
+      if (file.size < 2.5 * 1024 * 1024) {
+        const dataReader = new FileReader();
+        dataReader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          (file as any).dataUrl = dataUrl;
+          setAttachedFiles((prev) => {
+            const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
+            if (existingKeys.has(`${file.name}_${file.size}`)) return prev;
+            return [...prev, file];
+          });
+        };
+        dataReader.readAsDataURL(file);
+      } else {
+        setAttachedFiles((prev) => {
+          const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
+          if (existingKeys.has(`${file.name}_${file.size}`)) return prev;
+          return [...prev, file];
+        });
+      }
+    });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,10 +364,11 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
       }
       let finalBody = htmlBody;
       if (allAttached.length > 0) {
-        const attMeta = allAttached.map((file) => ({
+        const attMeta = allAttached.map((file: any) => ({
           name: file.name,
           size: file.size,
           type: file.name.split('.').pop()?.toLowerCase() || 'file',
+          dataUrl: file.dataUrl && file.dataUrl.length < 2 * 1024 * 1024 ? file.dataUrl : undefined,
         }));
         finalBody += `\n<!--ATTACHMENTS:${JSON.stringify(attMeta)}-->`;
       }
@@ -790,7 +805,15 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
                   key={`${file.name}-${idx}`}
                   className="group relative flex items-center justify-between p-2.5 bg-[#F9FAFB] hover:bg-[#F3F4F6] border border-[#E5E7EB] hover:border-[#D1D5DB] rounded-xl transition-all shadow-xs"
                 >
-                  <div className="flex items-center space-x-2.5 overflow-hidden min-w-0 pr-2">
+                  <div
+                    onClick={() => {
+                      if ((file as any).dataUrl) {
+                        window.open((file as any).dataUrl, '_blank');
+                      }
+                    }}
+                    className="flex items-center space-x-2.5 overflow-hidden min-w-0 pr-2 cursor-pointer"
+                    title="Click to preview file"
+                  >
                     {/* Badge */}
                     <div
                       className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 font-bold text-[10px] uppercase border ${getFileBadgeStyle(
@@ -802,13 +825,13 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
                     {/* Info */}
                     <div className="overflow-hidden min-w-0">
                       <p
-                        className="text-xs font-semibold text-gray-800 truncate group-hover:text-gray-900"
+                        className="text-xs font-semibold text-gray-800 truncate group-hover:text-[#00A854] transition-colors"
                         title={file.name}
                       >
                         {file.name}
                       </p>
                       <p className="text-[11px] text-gray-400">
-                        {formatFileSize(file.size)}
+                        {formatFileSize(file.size)} • Click to preview
                       </p>
                     </div>
                   </div>
